@@ -15,4 +15,6 @@ add_executable(webserver
         EventLoop.h
         Buffer.cpp
         Buffer.h
+        HttpRequest.cpp
+        HttpRequest.h
 )

@@ -21,6 +21,8 @@ webserver/
 ├── Server.h/.cpp     # 监听Socket：socket / bind / listen / accept
 ├── EventLoop.h/.cpp  # epoll 事件循环：事件注册、分发、连接生命周期管理
 ├── Connection.h/.cpp # 单条 TCP 连接：读写缓冲区与读写处理
+├── Buffer.h/.cpp     # 读写缓冲区：读写索引、自动扩容、从 fd 读满数据
+├── HttpRequest.h/.cpp# HTTP 请求解析：请求行与 Header，配合 Buffer 处理半包
 ├── CMakeLists.txt    # 构建配置
 └── LICENSE           # MIT
 ```
@@ -89,7 +91,7 @@ startLoop():
 
 ## 待办
 
-- [ ] HTTP/1.1 请求解析（请求行、Header、Body）与响应封装
+- [x] HTTP/1.1 请求解析（请求行 + Header）；Body 与响应封装待做
 - [ ] 改用 `EPOLLET` 边缘触发，配合循环读写
 - [ ] 定时器 + 心跳，清理超时空闲连接
 - [ ] 引入线程池，把请求处理与 I/O 线程分离
