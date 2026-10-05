@@ -5,6 +5,7 @@
 #ifndef WEBSERVER_BUFFER_H
 #define WEBSERVER_BUFFER_H
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -31,75 +32,24 @@ public:
     [[nodiscard]] const char* peek() const { return m_buffer.data() + m_readIndex; }
 
     // 在待处理数据中查找 "\r\n"，找不到返回 nullptr
-    [[nodiscard]] const char* findCRLF() const
-    {
-        const auto crlf = std::string_view{"\r\n"};
-        const std::string_view view{peek() , readableBytes()};
-        const auto pos = view.find(crlf);
-        return pos == std::string_view::npos ? nullptr : peek() + pos;
-    }
+    [[nodiscard]] const char* findCRLF() const;
 
-    void retrieve(std::size_t len)
-    {
-        if (len >= readableBytes()) {
-            retrieveAll();
-            return;
-        }
-        m_readIndex += len;
-    }
+    void retrieve(std::size_t len);
 
     // 消费 [peek(), end) 区间的数据
-    void retrieveUntil(const char* end)
-    {
-        retrieve(static_cast<std::size_t>(end - peek()));
-    }
+    void retrieveUntil(const char* end);
 
-    void retrieveAll()
-    {
-        m_readIndex = BUFFER_CHEAP_PREPEND;
-        m_writeIndex = BUFFER_CHEAP_PREPEND;
-    }
+    void retrieveAll();
 
-    [[nodiscard]] std::string retrieveAsString(std::size_t len)
-    {
-        len = std::min(len , readableBytes());
-        std::string result{peek() , len};
-        retrieve(len);
-        return result;
-    }
+    [[nodiscard]] std::string retrieveAsString(std::size_t len);
 
-    [[nodiscard]] std::string retrieveAllAsString()
-    {
-        return retrieveAsString(readableBytes());
-    }
+    [[nodiscard]] std::string retrieveAllAsString();
 
-    void append(const char* data , std::size_t len)
-    {
-        ensureWritableBytes(len);
-        std::copy_n(data , len , beginWrite());
-        hasWritten(len);
-    }
+    void append(const char* data , std::size_t len);
 
-    void append(const std::string& str)
-    {
-        append(str.data() , str.size());
-    }
+    void append(const std::string& str) { append(str.data() , str.size()); }
 
-    void ensureWritableBytes(std::size_t len)
-    {
-        if (writableBytes() >= len) { return; }
-        if (writableBytes() + prependableBytes() >= len + BUFFER_CHEAP_PREPEND) {
-            // 把待处理数据前移，腾出尾部空间
-            std::copy(m_buffer.begin() + static_cast<long>(m_readIndex) ,
-                      m_buffer.begin() + static_cast<long>(m_writeIndex) ,
-                      m_buffer.begin() + static_cast<long>(BUFFER_CHEAP_PREPEND));
-            m_writeIndex = BUFFER_CHEAP_PREPEND + readableBytes();
-            m_readIndex = BUFFER_CHEAP_PREPEND;
-        }
-        else {
-            m_buffer.resize(m_writeIndex + len);
-        }
-    }
+    void ensureWritableBytes(std::size_t len);
 
     [[nodiscard]] char* beginWrite() { return m_buffer.data() + m_writeIndex; }
 

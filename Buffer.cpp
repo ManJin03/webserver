@@ -8,6 +8,72 @@
 #include <string_view>
 #include <sys/uio.h>
 
+const char* Buffer::findCRLF() const
+{
+    constexpr std::string_view crlf{"\r\n"};
+    const std::string_view view{peek() , readableBytes()};
+    if (const auto pos = view.find(crlf) ; pos != std::string_view::npos) {
+        return peek() + pos;
+    }
+    return nullptr;
+}
+
+void Buffer::retrieve(std::size_t len)
+{
+    if (len >= readableBytes()) {
+        retrieveAll();
+        return;
+    }
+    m_readIndex += len;
+}
+
+void Buffer::retrieveUntil(const char* end)
+{
+    retrieve(static_cast<std::size_t>(end - peek()));
+}
+
+void Buffer::retrieveAll()
+{
+    m_readIndex = BUFFER_CHEAP_PREPEND;
+    m_writeIndex = BUFFER_CHEAP_PREPEND;
+}
+
+std::string Buffer::retrieveAsString(std::size_t len)
+{
+    len = std::min(len , readableBytes());
+    std::string result{peek() , len};
+    retrieve(len);
+    return result;
+}
+
+std::string Buffer::retrieveAllAsString()
+{
+    return retrieveAsString(readableBytes());
+}
+
+void Buffer::append(const char* data , std::size_t len)
+{
+    ensureWritableBytes(len);
+    std::copy_n(data , len , beginWrite());
+    hasWritten(len);
+}
+
+void Buffer::ensureWritableBytes(std::size_t len)
+{
+    if (writableBytes() >= len) { return; }
+    if (writableBytes() + prependableBytes() >= len + BUFFER_CHEAP_PREPEND) {
+        // 把待处理数据前移，腾出尾部空间
+        std::copy(m_buffer.begin() + static_cast<long>(m_readIndex) ,
+                  m_buffer.begin() + static_cast<long>(m_writeIndex) ,
+                  m_buffer.begin() + static_cast<long>(BUFFER_CHEAP_PREPEND));
+        m_writeIndex = BUFFER_CHEAP_PREPEND + readableBytes();
+        m_readIndex = BUFFER_CHEAP_PREPEND;
+    }
+    else {
+        m_buffer.resize(m_writeIndex + len);
+    }
+}
+
 ssize_t Buffer::readFd(int fd)
 {
     // 栈上备用空间：缓冲区剩余空间不够时，多余数据先落到这里再 append，
