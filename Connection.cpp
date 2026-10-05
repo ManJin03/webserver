@@ -9,7 +9,7 @@ ssize_t Connection::handleRead()
 {
     m_readBuf.clear();
     m_readBuf.resize(BUFFER_SIZE , '\0');
-    const auto bytes = read(m_socket , m_readBuf.data() , m_readBuf.size());
+    const auto bytes = recv(m_socket , m_readBuf.data() , m_readBuf.size() , 0);
     return bytes;
 }
 
