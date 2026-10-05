@@ -2,7 +2,7 @@
 
 一个用 C++ 从零实现的 Linux 高性能 Web 服务器，基于 **epoll + 非阻塞 I/O** 的单线程事件驱动模型。
 
-项目处于早期阶段：网络框架（监听、连接管理、事件循环）已经跑通，目前对客户端数据做 **echo 回显** 处理，HTTP 协议解析尚未实现。
+项目处于早期阶段：网络框架（监听、连接管理、事件循环）与 HTTP 请求解析已经跑通，目前会把请求的 **Body 原样回显** 成 `200 OK` 响应，路由与静态文件尚未实现。
 
 ## 特性
 
@@ -52,25 +52,42 @@ constexpr int PORT = 8888;
 
 ## 测试
 
-用 `nc` 连接，输入任意内容，服务端会原样回显：
+用 `curl` 发请求，服务端把请求正文原样回显：
 
 ```bash
-nc 127.0.0.1 8888
-hello        # 输入
-hello        # 服务端回显
+curl -i -d 'hello' http://127.0.0.1:8888/echo
 ```
 
-也可以用 `telnet 127.0.0.1 8888`。用 `curl` 的话会收到被原样回显的 HTTP 请求报文（因为目前没有 HTTP 解析与响应封装）。
+```http
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Content-Length: 5
+Connection: keep-alive
+
+hello
+```
+
+不带正文的 `GET` 返回 `Content-Length: 0`。也可以直接 `nc 127.0.0.1 8888` 手敲报文，以空行结束：
+
+```
+GET /hello HTTP/1.1
+Host: 127.0.0.1
+
+```
+
+头部或正文没发完（比如只发一半）时服务端不会响应，等数据收全后才回一次——这正是 `Buffer` 累积数据的作用。
 
 ## 架构说明
 
-### 三个核心类
+### 核心类
 
 | 类 | 职责 |
 | --- | --- |
 | `Server` | 持有监听 fd，负责 `socket` / `bind` / `listen`，`accept()` 返回一个新的 `Connection` |
 | `EventLoop` | 持有 epoll fd，把监听 fd 加入 epoll，循环 `epoll_wait` 并分发事件，用 `unordered_map<fd, unique_ptr<Connection>>` 管理全部连接 |
-| `Connection` | 封装一条 TCP 连接，持有读写缓冲区，`handleRead()` / `handleWrite()` 完成数据收发 |
+| `Connection` | 封装一条 TCP 连接，持有读写缓冲区与 `HttpRequest`，`handleRead()` 收数据、`processInput()` 解析并生成响应、`handleWrite()` 发送 |
+| `Buffer` | 读写双索引缓冲区，为上层屏蔽 TCP 半包/粘包 |
+| `HttpRequest` | 解析请求行与 Header，收不全时不消费缓冲区 |
 
 ### 事件循环流程
 
@@ -82,16 +99,22 @@ startLoop():
     ├─ 就绪的是监听 fd  → 循环 accept 直到 EAGAIN
     │                     新连接注册 EPOLLIN 并存入 m_connections
     └─ 就绪的是连接 fd  → 循环 handleRead()
-                           ├─ n > 0  : handleWrite() 回显
+                           ├─ n > 0  : processInput() 解析请求并填响应
+                           │            ├─ Incomplete : 没收全，等下一次读事件
+                           │            ├─ Complete   : handleWrite() 发响应
+                           │            └─ Error      : 摘除 fd 并销毁 Connection
                            ├─ n == 0 : 对端关闭，摘除 fd 并销毁 Connection
                            └─ n < 0  : 读到 EAGAIN 则本轮结束；出错则摘除 fd
 ```
+
+`processInput()` 内部循环处理，一次读事件里攒着的多条请求（pipeline）会被逐条解析、逐条填入写缓冲区。
 
 监听 fd 就绪后用 `while(true)` 一次性把积压的连接全部 accept 完，是 Reactor 模式里常见的写法。
 
 ## 待办
 
-- [x] HTTP/1.1 请求解析（请求行 + Header）；Body 与响应封装待做
+- [x] HTTP/1.1 请求解析（请求行 + Header）与响应封装；Body 按 `Content-Length` 收取
+- [ ] 写缓冲区未发完时应注册 `EPOLLOUT`，等可写再续发
 - [ ] 改用 `EPOLLET` 边缘触发，配合循环读写
 - [ ] 定时器 + 心跳，清理超时空闲连接
 - [ ] 引入线程池，把请求处理与 I/O 线程分离

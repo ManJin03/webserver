@@ -65,6 +65,13 @@ void EventLoop::startLoop()
             else {
                 while (true) {
                     if (const auto n = m_connections[fd]->handleRead() ; n > 0) {
+                        // 解析请求并填好响应，非法报文直接关闭连接
+                        if (m_connections[fd]->processInput() == ParseResult::Error) {
+                            printf("Bad request: fd %d\n" , fd);
+                            epoll_ctl(m_socket , EPOLL_CTL_DEL , fd , nullptr);
+                            m_connections.erase(fd);
+                            break;
+                        }
                         m_connections[fd]->handleWrite();
                     }
                     else if (n == 0) {
