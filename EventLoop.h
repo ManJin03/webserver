@@ -7,6 +7,7 @@
 
 #include "Server.h"
 
+#include <cstdint>
 #include <unordered_map>
 
 
@@ -31,6 +32,13 @@ public:
     int setServer(const std::shared_ptr<Server>& server);
 
     void startLoop();
+
+private:
+    // 切换某个连接关注的事件（收数据和发数据两个阶段互切）
+    void updateEvent(int fd , std::uint32_t events);
+
+    // 从 epoll 摘除并销毁连接
+    void removeConnection(int fd);
 };
 
 

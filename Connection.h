@@ -44,8 +44,10 @@ public:
     // 报文非法返回 Error（上层应关闭连接）。
     ParseResult processInput();
 
-    // 把写缓冲区里待发的数据发给对端，返回写出的字节数（可能少于待发数据）
+    // 把读缓冲区里待发的数据发给对端，返回写出的字节数（可能少于待发数据）
     ssize_t handleWrite();
+
+    [[nodiscard]] bool hasPendingWrite() const { return m_writeBuf.readableBytes() > 0; }
 };
 
 

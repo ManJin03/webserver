@@ -98,14 +98,21 @@ startLoop():
   epoll_wait 阻塞等待就绪事件
     ├─ 就绪的是监听 fd  → 循环 accept 直到 EAGAIN
     │                     新连接注册 EPOLLIN 并存入 m_connections
-    └─ 就绪的是连接 fd  → 循环 handleRead()
-                           ├─ n > 0  : processInput() 解析请求并填响应
-                           │            ├─ Incomplete : 没收全，等下一次读事件
-                           │            ├─ Complete   : handleWrite() 发响应
-                           │            └─ Error      : 摘除 fd 并销毁 Connection
-                           ├─ n == 0 : 对端关闭，摘除 fd 并销毁 Connection
-                           └─ n < 0  : 读到 EAGAIN 则本轮结束；出错则摘除 fd
+    └─ 就绪的是连接 fd → 接收阶段（EPOLLIN）
+                           └─ 循环 handleRead() + processInput() 解析请求、填好响应
+                              ├─ 有响应待发 : MOD 成 EPOLLOUT，下一轮再发送
+                              ├─ 还没收全   : 保持 EPOLLIN 继续等数据
+                              ├─ n == 0     : 对端关闭，摘除 fd 并销毁 Connection
+                              ├─ n < 0      : EAGAIN 本轮结束；出错则摘除 fd
+                              └─ Error      : 报文非法，摘除 fd
+       下一轮就绪的是同一个 fd（EPOLLOUT）→ 发送阶段
+                           └─ handleWrite() 把写缓冲区里的数据发出去
+                              ├─ 没发完 : 保持 EPOLLOUT，再等下一轮
+                              ├─ 发完了 : MOD 回 EPOLLIN，继续收下一条请求
+                              └─ 出错   : 摘除 fd
 ```
+
+收和发拆成两个阶段：一轮 `epoll_wait` 里只做一件事，响应攒在写缓冲区里，靠 `EPOLLIN` / `EPOLLOUT` 互切推进。好处是发送不会被接收拖住，写缓冲区没发完的数据能在后续轮次续发，不会丢。
 
 `processInput()` 内部循环处理，一次读事件里攒着的多条请求（pipeline）会被逐条解析、逐条填入写缓冲区。
 
@@ -114,7 +121,7 @@ startLoop():
 ## 待办
 
 - [x] HTTP/1.1 请求解析（请求行 + Header）与响应封装；Body 按 `Content-Length` 收取
-- [ ] 写缓冲区未发完时应注册 `EPOLLOUT`，等可写再续发
+- [x] 收发分离：接收后切 `EPOLLOUT`，下一轮再发；未发完的数据留到后续轮次续发
 - [ ] 改用 `EPOLLET` 边缘触发，配合循环读写
 - [ ] 定时器 + 心跳，清理超时空闲连接
 - [ ] 引入线程池，把请求处理与 I/O 线程分离

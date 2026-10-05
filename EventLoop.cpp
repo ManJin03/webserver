@@ -28,6 +28,22 @@ int EventLoop::setServer(const std::shared_ptr<Server>& server)
     return 0;
 }
 
+void EventLoop::updateEvent(const int fd , const std::uint32_t events)
+{
+    epoll_event event{};
+    event.events = events;
+    event.data.fd = fd;
+    if (epoll_ctl(m_socket , EPOLL_CTL_MOD , fd , &event) < 0) {
+        perror("epoll_ctl mod");
+    }
+}
+
+void EventLoop::removeConnection(const int fd)
+{
+    epoll_ctl(m_socket , EPOLL_CTL_DEL , fd , nullptr);
+    m_connections.erase(fd);
+}
+
 void EventLoop::startLoop()
 {
     while (true) {
@@ -48,7 +64,7 @@ void EventLoop::startLoop()
                     if (conn == nullptr) {
                         break;
                     }
-                    //将新连接注册到epoll中
+                    //将新连接注册到epoll中，新连接先只关注可读
                     epoll_event event{};
                     event.events = EPOLLIN;
                     event.data.fd = conn->getSocket();
@@ -60,25 +76,40 @@ void EventLoop::startLoop()
                         m_connections.emplace(conn->getSocket() , std::move(conn));
                     }
                 }
+                continue;
             }
-            //现有连接有新的输入
-            else {
+
+            //发送阶段：上一轮收完数据后切到 EPOLLOUT，这一轮把响应发出去
+            if (events[i].events & EPOLLOUT) {
+                const auto sent = m_connections[fd]->handleWrite();
+                if (sent < 0) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                        continue; // 内核发送缓冲区满了，保持 EPOLLOUT 等下一轮
+                    }
+                    perror("write");
+                    removeConnection(fd);
+                    continue;
+                }
+                // 没发完继续关注可写，发完了切回关注可读
+                updateEvent(fd , m_connections[fd]->hasPendingWrite() ? EPOLLOUT : EPOLLIN);
+                continue;
+            }
+
+            //接收阶段：把数据收进读缓冲区并解析，响应留到下一轮发
+            if (events[i].events & EPOLLIN) {
                 while (true) {
                     if (const auto n = m_connections[fd]->handleRead() ; n > 0) {
                         // 解析请求并填好响应，非法报文直接关闭连接
                         if (m_connections[fd]->processInput() == ParseResult::Error) {
                             printf("Bad request: fd %d\n" , fd);
-                            epoll_ctl(m_socket , EPOLL_CTL_DEL , fd , nullptr);
-                            m_connections.erase(fd);
+                            removeConnection(fd);
                             break;
                         }
-                        m_connections[fd]->handleWrite();
                     }
                     else if (n == 0) {
                         //连接关闭，移除该连接
                         printf("Connection closed: fd %d\n" , fd);
-                        epoll_ctl(m_socket , EPOLL_CTL_DEL , fd , nullptr);
-                        m_connections.erase(fd);
+                        removeConnection(fd);
                         break;
                     }
                     else {
@@ -86,10 +117,13 @@ void EventLoop::startLoop()
                             break; // 数据读完了
                         }
                         perror("read");
-                        epoll_ctl(m_socket , EPOLL_CTL_DEL , fd , nullptr);
-                        m_connections.erase(fd);
+                        removeConnection(fd);
                         break;
                     }
+                }
+                // 有响应要发就切到 EPOLLOUT，下一轮 epoll_wait 返回后再发送
+                if (m_connections.contains(fd) && m_connections[fd]->hasPendingWrite()) {
+                    updateEvent(fd , EPOLLOUT);
                 }
             }
         }
