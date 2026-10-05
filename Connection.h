@@ -11,6 +11,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
+class Router;
+
 class Connection
 {
     int m_socket{-1};
@@ -39,10 +41,10 @@ public:
     // 把本次可读的数据全部累积进读缓冲区，返回本次读到的字节数
     ssize_t handleRead();
 
-    // 解析读缓冲区里的 HTTP 请求，把响应填入写缓冲区。
+    // 解析读缓冲区里的 HTTP 请求，交给 Router 分发，把响应填入写缓冲区。
     // 头部或正文没收全返回 Incomplete（继续等下一次读事件），
     // 报文非法返回 Error（上层应关闭连接）。
-    ParseResult processInput();
+    ParseResult processInput(const Router& router);
 
     // 把读缓冲区里待发的数据发给对端，返回写出的字节数（可能少于待发数据）
     ssize_t handleWrite();

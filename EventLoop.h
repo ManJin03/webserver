@@ -13,10 +13,13 @@
 
 constexpr int MAXEVENTS = 10;
 
+class Router;
+
 class EventLoop
 {
     int m_socket{-1};
     std::shared_ptr<Server> m_server{nullptr};
+    std::shared_ptr<Router> m_router{nullptr};
     std::unordered_map<int,std::unique_ptr<Connection>> m_connections;
 
 public:
@@ -30,6 +33,8 @@ public:
     };
 
     int setServer(const std::shared_ptr<Server>& server);
+
+    void setRouter(const std::shared_ptr<Router>& router) { m_router = router; }
 
     void startLoop();
 

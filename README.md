@@ -23,6 +23,7 @@ webserver/
 ├── Connection.h/.cpp # 单条 TCP 连接：读写缓冲区与读写处理
 ├── Buffer.h/.cpp     # 读写缓冲区：读写索引、自动扩容、从 fd 读满数据
 ├── HttpRequest.h/.cpp# HTTP 请求解析：请求行与 Header，配合 Buffer 处理半包
+├── Router.h/.cpp     # 路由表：路径 → 处理函数，未命中走兜底 handler
 ├── CMakeLists.txt    # 构建配置
 └── LICENSE           # MIT
 ```
@@ -50,9 +51,47 @@ Server listening on port 8888...
 constexpr int PORT = 8888;
 ```
 
+## 注册路由
+
+在 `main.cpp` 里给路径挂一个 lambda 就行，处理函数只负责"回什么"，不碰 socket：
+
+```cpp
+const auto router = std::make_shared<Router>();
+
+router->addRoute("/echo" , [](const HttpRequest& , std::string_view body)
+{
+    return Response{200 , std::string{body}};   // 回显请求正文
+});
+
+router->addRoute("/hello" , [](const HttpRequest& request , std::string_view)
+{
+    Response resp{200 , "<h1>hello</h1>"};
+    resp.contentType = "text/html; charset=utf-8";
+    return resp;
+});
+
+router->setDefaultHandler([](const HttpRequest& request , std::string_view)
+{
+    return Response{404 , "404 Not Found: " + request.path};
+});
+
+loop->setRouter(router);
+```
+
+`Response` 的三个字段：`status`（默认 200）、`body`、`contentType`（默认 `text/plain; charset=utf-8`）。状态行文本由 `Router` 按状态码映射，重复的 `Content-Length` / `Connection` 头不用操心。
+
 ## 测试
 
-用 `curl` 发请求，服务端把请求正文原样回显：
+用 `curl` 打几个注册过的路径：
+
+```bash
+curl -i http://127.0.0.1:8888/            # 200 welcome
+curl -i -d 'payload' http://127.0.0.1:8888/echo   # 200 payload
+curl -i http://127.0.0.1:8888/hello       # 200，返回 HTML，含 User-Agent
+curl -i http://127.0.0.1:8888/nope        # 404
+```
+
+回显示例：
 
 ```bash
 curl -i -d 'hello' http://127.0.0.1:8888/echo
@@ -60,7 +99,7 @@ curl -i -d 'hello' http://127.0.0.1:8888/echo
 
 ```http
 HTTP/1.1 200 OK
-Content-Type: text/plain
+Content-Type: text/plain; charset=utf-8
 Content-Length: 5
 Connection: keep-alive
 
@@ -87,6 +126,7 @@ Host: 127.0.0.1
 | `EventLoop` | 持有 epoll fd，把监听 fd 加入 epoll，循环 `epoll_wait` 并分发事件，用 `unordered_map<fd, unique_ptr<Connection>>` 管理全部连接 |
 | `Connection` | 封装一条 TCP 连接，持有读写缓冲区与 `HttpRequest`，`handleRead()` 收数据、`processInput()` 解析并生成响应、`handleWrite()` 发送 |
 | `Buffer` | 读写双索引缓冲区，为上层屏蔽 TCP 半包/粘包 |
+| `Router` | 路由表，按 `path` 分发到注册的处理函数，把产出的 `Response` 拼成 HTTP 报文 |
 | `HttpRequest` | 解析请求行与 Header，收不全时不消费缓冲区 |
 
 ### 事件循环流程
@@ -125,7 +165,8 @@ startLoop():
 - [ ] 改用 `EPOLLET` 边缘触发，配合循环读写
 - [ ] 定时器 + 心跳，清理超时空闲连接
 - [ ] 引入线程池，把请求处理与 I/O 线程分离
-- [ ] 静态文件服务与路由
+- [x] 路由模块：路径 → 处理函数，支持自定义响应状态码与 Content-Type
+- [ ] 静态文件服务、路径参数（`/user/:id`）与方法匹配（GET/POST 分发到不同 handler）
 
 ## 许可证
 

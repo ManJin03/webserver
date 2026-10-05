@@ -100,7 +100,7 @@ void EventLoop::startLoop()
                 while (true) {
                     if (const auto n = m_connections[fd]->handleRead() ; n > 0) {
                         // 解析请求并填好响应，非法报文直接关闭连接
-                        if (m_connections[fd]->processInput() == ParseResult::Error) {
+                        if (m_connections[fd]->processInput(*m_router) == ParseResult::Error) {
                             printf("Bad request: fd %d\n" , fd);
                             removeConnection(fd);
                             break;

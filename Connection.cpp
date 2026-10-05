@@ -3,6 +3,7 @@
 //
 
 #include "Connection.h"
+#include "Router.h"
 
 #include <optional>
 #include <string>
@@ -28,7 +29,7 @@ ssize_t Connection::handleRead()
     return m_readBuf.readFd(m_socket);
 }
 
-ParseResult Connection::processInput()
+ParseResult Connection::processInput(const Router& router)
 {
     // 一次读事件里可能攒着多条请求（pipeline），收全一条就处理一条
     while (true) {
@@ -44,13 +45,7 @@ ParseResult Connection::processInput()
         if (m_readBuf.readableBytes() < bodyLen) { return ParseResult::Incomplete; }
 
         const std::string body = m_readBuf.retrieveAsString(bodyLen);
-
-        m_writeBuf.append("HTTP/1.1 200 OK\r\n");
-        m_writeBuf.append("Content-Type: text/plain\r\n");
-        m_writeBuf.append("Content-Length: " + std::to_string(body.size()) + "\r\n");
-        m_writeBuf.append("Connection: keep-alive\r\n");
-        m_writeBuf.append("\r\n");
-        m_writeBuf.append(body);
+        router.route(m_request , body , m_writeBuf);
 
         // 复位，准备解析该连接上的下一条请求
         m_request = HttpRequest{};
