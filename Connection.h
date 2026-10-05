@@ -5,22 +5,21 @@
 #ifndef WEBSERVER_CONNECTION_H
 #define WEBSERVER_CONNECTION_H
 
-#include <string>
-#include <unistd.h>
-#include <netinet/in.h>
+#include "Buffer.h"
 
-constexpr int BUFFER_SIZE = 1024;
+#include <netinet/in.h>
+#include <unistd.h>
 
 class Connection
 {
     int m_socket{-1};
     sockaddr_in m_addr{};
-    std::string m_readBuf{};
-    std::string m_writeBuf{};
+    Buffer m_readBuf{};
+    Buffer m_writeBuf{};
 
 public:
     explicit Connection(const int socket , const sockaddr_in addr)
-        : m_socket{socket}, m_addr{addr}, m_readBuf(BUFFER_SIZE , '\0'), m_writeBuf(BUFFER_SIZE , '\0') {};
+        : m_socket{socket}, m_addr{addr} {};
 
     ~Connection()
     {
@@ -30,9 +29,15 @@ public:
 
     [[nodiscard]] int getSocket() const { return m_socket; }
 
+    [[nodiscard]] Buffer& getReadBuf() { return m_readBuf; }
+
+    [[nodiscard]] Buffer& getWriteBuf() { return m_writeBuf; }
+
+    // 把本次可读的数据全部累积进读缓冲区，返回本次读到的字节数
     ssize_t handleRead();
 
-    void handleWrite() const;
+    // 把读缓冲区里未消费的数据写回对端，返回写出的字节数（可能少于待发数据）
+    ssize_t handleWrite();
 };
 
 

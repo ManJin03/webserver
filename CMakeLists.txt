@@ -13,4 +13,6 @@ add_executable(webserver
         Connection.h
         EventLoop.cpp
         EventLoop.h
+        Buffer.cpp
+        Buffer.h
 )

@@ -1,0 +1,116 @@
+//
+// Created by 33550 on 2026/10/5.
+//
+
+#ifndef WEBSERVER_BUFFER_H
+#define WEBSERVER_BUFFER_H
+
+#include <string>
+#include <vector>
+
+constexpr std::size_t BUFFER_INITIAL_SIZE = 1024;
+constexpr std::size_t BUFFER_CHEAP_PREPEND = 8;
+
+// 读写缓冲区：readIndex 之前是已读数据，[readIndex, writeIndex) 是待处理数据，
+// writeIndex 之后是可写空间。TCP 是字节流，一次 read 不保证拿到完整消息，
+// 因此把数据先累积在 Buffer 里，由上层判断是否已经收全。
+class Buffer
+{
+    std::vector<char> m_buffer;
+    std::size_t m_readIndex{BUFFER_CHEAP_PREPEND};
+    std::size_t m_writeIndex{BUFFER_CHEAP_PREPEND};
+
+public:
+    explicit Buffer(std::size_t initialSize = BUFFER_INITIAL_SIZE)
+        : m_buffer(initialSize + BUFFER_CHEAP_PREPEND) {}
+
+    [[nodiscard]] std::size_t readableBytes() const { return m_writeIndex - m_readIndex; }
+    [[nodiscard]] std::size_t writableBytes() const { return m_buffer.size() - m_writeIndex; }
+    [[nodiscard]] std::size_t prependableBytes() const { return m_readIndex; }
+
+    [[nodiscard]] const char* peek() const { return m_buffer.data() + m_readIndex; }
+
+    // 在待处理数据中查找 "\r\n"，找不到返回 nullptr
+    [[nodiscard]] const char* findCRLF() const
+    {
+        const auto crlf = std::string_view{"\r\n"};
+        const std::string_view view{peek() , readableBytes()};
+        const auto pos = view.find(crlf);
+        return pos == std::string_view::npos ? nullptr : peek() + pos;
+    }
+
+    void retrieve(std::size_t len)
+    {
+        if (len >= readableBytes()) {
+            retrieveAll();
+            return;
+        }
+        m_readIndex += len;
+    }
+
+    // 消费 [peek(), end) 区间的数据
+    void retrieveUntil(const char* end)
+    {
+        retrieve(static_cast<std::size_t>(end - peek()));
+    }
+
+    void retrieveAll()
+    {
+        m_readIndex = BUFFER_CHEAP_PREPEND;
+        m_writeIndex = BUFFER_CHEAP_PREPEND;
+    }
+
+    [[nodiscard]] std::string retrieveAsString(std::size_t len)
+    {
+        len = std::min(len , readableBytes());
+        std::string result{peek() , len};
+        retrieve(len);
+        return result;
+    }
+
+    [[nodiscard]] std::string retrieveAllAsString()
+    {
+        return retrieveAsString(readableBytes());
+    }
+
+    void append(const char* data , std::size_t len)
+    {
+        ensureWritableBytes(len);
+        std::copy_n(data , len , beginWrite());
+        hasWritten(len);
+    }
+
+    void append(const std::string& str)
+    {
+        append(str.data() , str.size());
+    }
+
+    void ensureWritableBytes(std::size_t len)
+    {
+        if (writableBytes() >= len) { return; }
+        if (writableBytes() + prependableBytes() >= len + BUFFER_CHEAP_PREPEND) {
+            // 把待处理数据前移，腾出尾部空间
+            std::copy(m_buffer.begin() + static_cast<long>(m_readIndex) ,
+                      m_buffer.begin() + static_cast<long>(m_writeIndex) ,
+                      m_buffer.begin() + static_cast<long>(BUFFER_CHEAP_PREPEND));
+            m_writeIndex = BUFFER_CHEAP_PREPEND + readableBytes();
+            m_readIndex = BUFFER_CHEAP_PREPEND;
+        }
+        else {
+            m_buffer.resize(m_writeIndex + len);
+        }
+    }
+
+    [[nodiscard]] char* beginWrite() { return m_buffer.data() + m_writeIndex; }
+
+    void hasWritten(std::size_t len)
+    {
+        m_writeIndex += std::min(len , writableBytes());
+    }
+
+    // 从 fd 读一次数据写入缓冲区，返回读到的字节数；出错返回 -1（errno 由 readv 设置）
+    ssize_t readFd(int fd);
+};
+
+
+#endif //WEBSERVER_BUFFER_H

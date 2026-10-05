@@ -4,16 +4,16 @@
 
 #include "Connection.h"
 
-
 ssize_t Connection::handleRead()
 {
-    m_readBuf.clear();
-    m_readBuf.resize(BUFFER_SIZE , '\0');
-    const auto bytes = recv(m_socket , m_readBuf.data() , m_readBuf.size() , 0);
-    return bytes;
+    return m_readBuf.readFd(m_socket);
 }
 
-void Connection::handleWrite() const
+ssize_t Connection::handleWrite()
 {
-    write(m_socket , m_readBuf.data() , m_readBuf.size());
+    const auto bytes = write(m_socket , m_readBuf.peek() , m_readBuf.readableBytes());
+    if (bytes > 0) {
+        m_readBuf.retrieve(static_cast<std::size_t>(bytes));
+    }
+    return bytes;
 }
