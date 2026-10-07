@@ -10,18 +10,17 @@
 
 namespace
 {
-// 取 Content-Length；缺失或不是合法数字时返回 nullopt（当作没有正文）
-std::optional<std::size_t> contentLength(const HttpRequest& request)
-{
-    const auto it = request.headers.find("content-length");
-    if (it == request.headers.end()) { return std::nullopt; }
-    try {
-        return std::stoull(it->second);
+    // 取 Content-Length；缺失或不是合法数字时返回 nullopt（当作没有正文）
+    std::optional<std::size_t> contentLength(const HttpRequest& request)
+    {
+        const auto it = request.headers.find("content-length");
+        if (it == request.headers.end()) { return std::nullopt; }
+        try {
+            return std::stoull(it->second);
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
     }
-    catch (const std::exception&) {
-        return std::nullopt;
-    }
-}
 }
 
 ssize_t Connection::handleRead()

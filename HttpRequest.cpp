@@ -11,25 +11,25 @@
 
 namespace
 {
-constexpr std::string_view CRLF{"\r\n"};
-constexpr std::string_view HEAD_END{"\r\n\r\n"};
+    constexpr std::string_view CRLF{"\r\n"};
+    constexpr std::string_view HEAD_END{"\r\n\r\n"};
 
-std::string_view trim(std::string_view str)
-{
-    constexpr std::string_view blank{" \t"};
-    const auto begin = str.find_first_not_of(blank);
-    if (begin == std::string_view::npos) { return {}; }
-    const auto end = str.find_last_not_of(blank);
-    return str.substr(begin , end - begin + 1);
-}
+    std::string_view trim(std::string_view str)
+    {
+        constexpr std::string_view blank{" \t"};
+        const auto begin = str.find_first_not_of(blank);
+        if (begin == std::string_view::npos) { return {}; }
+        const auto end = str.find_last_not_of(blank);
+        return str.substr(begin , end - begin + 1);
+    }
 
-std::string toLower(std::string_view str)
-{
-    std::string result{str};
-    std::transform(result.begin() , result.end() , result.begin() ,
-                   [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return result;
-}
+    std::string toLower(std::string_view str)
+    {
+        std::string result{str};
+        std::transform(result.begin() , result.end() , result.begin() ,
+                       [] (const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return result;
+    }
 }
 
 ParseResult HttpRequest::parse(Buffer& buf)
@@ -52,7 +52,9 @@ ParseResult HttpRequest::parse(Buffer& buf)
         const auto lineBegin = lineEnd + CRLF.size();
         lineEnd = head.find(CRLF , lineBegin);
         const std::string_view line = head.substr(lineBegin ,
-            lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - lineBegin);
+                                                  lineEnd == std::string_view::npos
+                                                      ? std::string_view::npos
+                                                      : lineEnd - lineBegin);
         if (line.empty()) { continue; }
 
         const auto colon = line.find(':');

@@ -43,11 +43,13 @@ public:
     void route(const HttpRequest& request , std::string_view body , Buffer& out) const;
 
 private:
-    std::unordered_map<std::string , Handler> m_routes;
-    Handler m_default{[](const HttpRequest& , std::string_view)
-    {
-        return Response{404 , "404 Not Found"};
-    }};
+    std::unordered_map<std::string,Handler> m_routes;
+    Handler m_default{
+        [] (const HttpRequest& , std::string_view)
+        {
+            return Response{404 , "404 Not Found"};
+        }
+    };
 };
 
 
