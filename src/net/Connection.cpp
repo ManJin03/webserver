@@ -53,6 +53,9 @@ ParseResult Connection::processInput(const Router& router , ThreadPool& pool , E
         m_request = HttpRequest{};
         m_headerParsed = false;
 
+        // 客户端要求关闭就在响应发完后关掉，否则一直保持 keep-alive
+        if (request.wantClose()) { m_closeAfterWrite = true; }
+
         // 按 fd 投递：同一连接的任务落在同一个工作线程上，保证响应顺序
         const int fd = m_socket;
         pool.enqueue(fd , [&router , &loop , fd , req = std::move(request) , data = std::move(body)]

@@ -25,6 +25,7 @@ class Connection
     Buffer m_writeBuf{};
     HttpRequest m_request{};
     bool m_headerParsed{false};
+    bool m_closeAfterWrite{false};
     std::chrono::steady_clock::time_point m_lastActive{std::chrono::steady_clock::now()};
 
 public:
@@ -64,6 +65,9 @@ public:
     ssize_t handleWrite();
 
     [[nodiscard]] bool hasPendingWrite() const { return m_writeBuf.readableBytes() > 0; }
+
+    // 请求带 Connection: close 时，响应发完就该关掉这条连接
+    [[nodiscard]] bool shouldClose() const { return m_closeAfterWrite; }
 };
 
 

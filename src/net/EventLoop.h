@@ -16,7 +16,7 @@
 #include <unordered_map>
 
 
-constexpr int MAXEVENTS = 10;
+constexpr int MAXEVENTS = 1024;
 // 定时器每隔多久检查一次
 constexpr std::chrono::seconds TIMER_INTERVAL{5};
 // 连接空闲超过这么久就清理掉

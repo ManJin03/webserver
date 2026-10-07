@@ -67,3 +67,14 @@ ParseResult HttpRequest::parse(Buffer& buf)
     buf.retrieve(headEnd + HEAD_END.size());
     return ParseResult::Complete;
 }
+
+bool HttpRequest::wantClose() const
+{
+    if (const auto it = headers.find("connection") ; it != headers.end()) {
+        const std::string value = toLower(it->second);
+        if (value.find("close") != std::string::npos) { return true; }
+        if (value.find("keep-alive") != std::string::npos) { return false; }
+    }
+    // HTTP/1.1 默认持久连接，更早的版本默认发完就关
+    return version != "HTTP/1.1";
+}

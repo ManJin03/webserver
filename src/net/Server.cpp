@@ -46,6 +46,5 @@ std::unique_ptr<Connection> Server::accept() const
         if (errno == EAGAIN || errno == EWOULDBLOCK) { return nullptr; }
         perror("accept");
     }
-    printf("Server accepted connection from port %d...\n" , m_port);
     return std::make_unique<Connection>(confd , addr);
 }

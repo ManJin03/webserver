@@ -28,6 +28,9 @@ struct HttpRequest
     // 从 Buffer 里解析请求行与头部。数据没收全时返回 Incomplete 且一个字节都不消费，
     // 这样下一次读事件追加数据后可以从头重新解析；解析成功才把已消费的头部取走。
     ParseResult parse(Buffer& buf);
+
+    // 请求是否要求关闭连接：Connection: close，或 HTTP/1.0 且没声明 keep-alive
+    [[nodiscard]] bool wantClose() const;
 };
 
 

@@ -31,7 +31,7 @@ void Router::route(const HttpRequest& request , std::string_view body , Buffer& 
     out.append("HTTP/1.1 " + std::to_string(resp.status) + " " + std::string{statusText(resp.status)} + "\r\n");
     out.append("Content-Type: " + resp.contentType + "\r\n");
     out.append("Content-Length: " + std::to_string(resp.body.size()) + "\r\n");
-    out.append("Connection: keep-alive\r\n");
+    out.append(request.wantClose() ? "Connection: close\r\n" : "Connection: keep-alive\r\n");
     out.append("\r\n");
     out.append(resp.body);
 }

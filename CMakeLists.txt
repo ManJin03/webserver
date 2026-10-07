@@ -5,6 +5,11 @@ project(webserver)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# 未指定构建类型时默认 Release，否则压测跑的是 -O0 的代码
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
 add_executable(webserver
         src/main.cpp
         # 网络层：监听、连接、事件循环

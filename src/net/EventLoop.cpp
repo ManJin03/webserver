@@ -181,8 +181,17 @@ void EventLoop::startLoop()
                     removeConnection(fd);
                     continue;
                 }
-                // 没发完继续关注可写，发完了切回关注可读
-                updateEvent(fd , m_connections[fd]->hasPendingWrite() ? EPOLLOUT : EPOLLIN);
+                // 没发完继续关注可写；发完了按是否需要关闭连接分别处理
+                if (m_connections[fd]->hasPendingWrite()) {
+                    updateEvent(fd , EPOLLOUT);
+                }
+                else if (m_connections[fd]->shouldClose()) {
+                    // 响应了 Connection: close，发完就关
+                    removeConnection(fd);
+                }
+                else {
+                    updateEvent(fd , EPOLLIN);
+                }
                 continue;
             }
 
