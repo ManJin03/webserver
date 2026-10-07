@@ -8,6 +8,7 @@
 #include "Buffer.h"
 #include "HttpRequest.h"
 
+#include <chrono>
 #include <netinet/in.h>
 #include <unistd.h>
 
@@ -21,6 +22,7 @@ class Connection
     Buffer m_writeBuf{};
     HttpRequest m_request{};
     bool m_headerParsed{false};
+    std::chrono::steady_clock::time_point m_lastActive{std::chrono::steady_clock::now()};
 
 public:
     explicit Connection(const int socket , const sockaddr_in addr)
@@ -33,6 +35,11 @@ public:
     }
 
     [[nodiscard]] int getSocket() const { return m_socket; }
+
+    // 最近一次有数据到达的时间，定时器据此判断连接是否空闲超时
+    [[nodiscard]] std::chrono::steady_clock::time_point lastActive() const { return m_lastActive; }
+
+    void updateLastActive() { m_lastActive = std::chrono::steady_clock::now(); }
 
     [[nodiscard]] Buffer& getReadBuf() { return m_readBuf; }
 

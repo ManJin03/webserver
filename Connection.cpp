@@ -25,6 +25,7 @@ namespace
 
 ssize_t Connection::handleRead()
 {
+    updateLastActive();
     return m_readBuf.readFd(m_socket);
 }
 

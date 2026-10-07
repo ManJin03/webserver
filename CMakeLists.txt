@@ -19,4 +19,6 @@ add_executable(webserver
         HttpRequest.h
         Router.cpp
         Router.h
+        Timer.cpp
+        Timer.h
 )

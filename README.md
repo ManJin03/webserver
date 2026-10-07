@@ -24,6 +24,7 @@ webserver/
 ├── Buffer.h/.cpp     # 读写缓冲区：读写索引、自动扩容、从 fd 读满数据
 ├── HttpRequest.h/.cpp# HTTP 请求解析：请求行与 Header，配合 Buffer 处理半包
 ├── Router.h/.cpp     # 路由表：路径 → 处理函数，未命中走兜底 handler
+├── Timer.h/.cpp      # 基于 timerfd 的周期定时器，挂进 epoll 定期清理空闲连接
 ├── CMakeLists.txt    # 构建配置
 └── LICENSE           # MIT
 ```
@@ -127,6 +128,7 @@ Host: 127.0.0.1
 | `Connection` | 封装一条 TCP 连接，持有读写缓冲区与 `HttpRequest`，`handleRead()` 收数据、`processInput()` 解析并生成响应、`handleWrite()` 发送 |
 | `Buffer` | 读写双索引缓冲区，为上层屏蔽 TCP 半包/粘包 |
 | `Router` | 路由表，按 `path` 分发到注册的处理函数，把产出的 `Response` 拼成 HTTP 报文 |
+| `Timer` | 封装 `timerfd`，周期到期时触发 `EventLoop::checkTimeout()` 清理空闲连接 |
 | `HttpRequest` | 解析请求行与 Header，收不全时不消费缓冲区 |
 
 ### 事件循环流程
@@ -162,8 +164,9 @@ startLoop():
 
 - [x] HTTP/1.1 请求解析（请求行 + Header）与响应封装；Body 按 `Content-Length` 收取
 - [x] 收发分离：接收后切 `EPOLLOUT`，下一轮再发；未发完的数据留到后续轮次续发
+- [x] `timerfd` 定时器：每 5s 扫一遍连接，清掉空闲超过 30s 的连接
 - [ ] 改用 `EPOLLET` 边缘触发，配合循环读写
-- [ ] 定时器 + 心跳，清理超时空闲连接
+- [ ] 用最小堆 / 时间轮管理定时器，避免每次全量扫描连接
 - [ ] 引入线程池，把请求处理与 I/O 线程分离
 - [x] 路由模块：路径 → 处理函数，支持自定义响应状态码与 Content-Type
 - [ ] 静态文件服务、路径参数（`/user/:id`）与方法匹配（GET/POST 分发到不同 handler）

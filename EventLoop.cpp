@@ -11,6 +11,14 @@ EventLoop::EventLoop()
     m_socket = epoll_create1(0);
     if (m_socket < 0) {
         perror("epoll_create1");
+        return;
+    }
+    // 定时器也是 epoll 里的一个 fd，到期时和其他事件一起被 epoll_wait 返回
+    epoll_event timerEvent{};
+    timerEvent.events = EPOLLIN;
+    timerEvent.data.fd = m_timer.getFd();
+    if (epoll_ctl(m_socket , EPOLL_CTL_ADD , m_timer.getFd() , &timerEvent) < 0) {
+        perror("epoll_ctl add timer");
     }
 }
 
@@ -28,7 +36,7 @@ int EventLoop::setServer(const std::shared_ptr<Server>& server)
     return 0;
 }
 
-void EventLoop::updateEvent(const int fd , const std::uint32_t events)
+void EventLoop::updateEvent(const int fd , const std::uint32_t events) const
 {
     epoll_event event{};
     event.events = events;
@@ -44,6 +52,21 @@ void EventLoop::removeConnection(const int fd)
     m_connections.erase(fd);
 }
 
+void EventLoop::checkTimeout()
+{
+    const auto now = std::chrono::steady_clock::now();
+    for (auto it = m_connections.begin() ; it != m_connections.end() ;) {
+        if (now - it->second->lastActive() > CONNECTION_TIMEOUT) {
+            printf("Connection timeout: fd %d\n" , it->first);
+            epoll_ctl(m_socket , EPOLL_CTL_DEL , it->first , nullptr);
+            it = m_connections.erase(it); // Connection 析构时自动 close
+        }
+        else {
+            ++it;
+        }
+    }
+}
+
 void EventLoop::startLoop()
 {
     while (true) {
@@ -57,6 +80,12 @@ void EventLoop::startLoop()
         for (int i = 0 ; i < nfds ; i++) {
             //获取所有有新输入的套接字文件描述符
             const int fd = events[i].data.fd;
+            //定时器到期，清掉空闲连接
+            if (fd == m_timer.getFd()) {
+                m_timer.onTick();
+                checkTimeout();
+                continue;
+            }
             //服务端有新连接
             if (fd == m_server->getSocket()) {
                 while (true) {
