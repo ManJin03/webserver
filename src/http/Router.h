@@ -5,8 +5,8 @@
 #ifndef WEBSERVER_ROUTER_H
 #define WEBSERVER_ROUTER_H
 
-#include "Buffer.h"
-#include "HttpRequest.h"
+#include "base/Buffer.h"
+#include "http/HttpRequest.h"
 
 #include <functional>
 #include <string>

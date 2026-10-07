@@ -5,7 +5,7 @@
 #ifndef WEBSERVER_SERVER_H
 #define WEBSERVER_SERVER_H
 
-#include "Connection.h"
+#include "net/Connection.h"
 
 #include <memory>
 

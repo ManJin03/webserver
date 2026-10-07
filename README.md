@@ -17,17 +17,24 @@
 
 ```
 webserver/
-├── main.cpp          # 程序入口：创建 Server 与 EventLoop 并启动循环
-├── Server.h/.cpp     # 监听Socket：socket / bind / listen / accept
-├── EventLoop.h/.cpp  # epoll 事件循环：事件注册、分发、连接生命周期管理
-├── Connection.h/.cpp # 单条 TCP 连接：读写缓冲区与读写处理
-├── Buffer.h/.cpp     # 读写缓冲区：读写索引、自动扩容、从 fd 读满数据
-├── HttpRequest.h/.cpp# HTTP 请求解析：请求行与 Header，配合 Buffer 处理半包
-├── Router.h/.cpp     # 路由表：路径 → 处理函数，未命中走兜底 handler
-├── Timer.h/.cpp      # 基于 timerfd 的周期定时器，挂进 epoll 定期清理空闲连接
-├── CMakeLists.txt    # 构建配置
-└── LICENSE           # MIT
+├── CMakeLists.txt      # 构建配置
+├── LICENSE             # MIT
+└── src/
+    ├── main.cpp        # 程序入口：建路由表、创建 Server 与 EventLoop 并启动循环
+    ├── net/            # 网络层：只管 fd、事件与连接，不关心协议内容
+    │   ├── Server.h/.cpp      # 监听 socket：socket / bind / listen / accept
+    │   ├── EventLoop.h/.cpp   # epoll 事件循环：事件注册、分发、连接生命周期与超时清理
+    │   └── Connection.h/.cpp  # 单条 TCP 连接：读写缓冲区、请求解析与收发
+    ├── http/           # 协议层：HTTP 报文的解析与分发
+    │   ├── HttpRequest.h/.cpp # 请求行与 Header 解析，配合 Buffer 处理半包
+    │   └── Router.h/.cpp      # 路由表：路径 → 处理函数，未命中走兜底 handler
+    └── base/           # 基础设施：与业务无关的可复用组件
+        ├── Buffer.h/.cpp      # 读写双索引缓冲区：自动扩容、从 fd 读满数据
+        └── Timer.h/.cpp       # 基于 timerfd 的周期定时器
 ```
+
+头文件一律以 `src` 为根引用（`#include "net/Server.h"`、`#include "base/Buffer.h"`），
+CMake 里用 `target_include_directories(webserver PRIVATE src)` 配好，不需要相对路径 `../`。
 
 ## 编译与运行
 

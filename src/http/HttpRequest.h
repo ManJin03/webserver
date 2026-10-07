@@ -5,7 +5,7 @@
 #ifndef WEBSERVER_HTTPREQUEST_H
 #define WEBSERVER_HTTPREQUEST_H
 
-#include "Buffer.h"
+#include "base/Buffer.h"
 
 #include <string>
 #include <unordered_map>

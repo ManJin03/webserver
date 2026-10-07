@@ -5,8 +5,8 @@
 #ifndef WEBSERVER_EVENTLOOP_H
 #define WEBSERVER_EVENTLOOP_H
 
-#include "Server.h"
-#include "Timer.h"
+#include "net/Server.h"
+#include "base/Timer.h"
 
 #include <chrono>
 #include <cstdint>

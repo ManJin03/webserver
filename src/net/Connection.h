@@ -5,8 +5,8 @@
 #ifndef WEBSERVER_CONNECTION_H
 #define WEBSERVER_CONNECTION_H
 
-#include "Buffer.h"
-#include "HttpRequest.h"
+#include "base/Buffer.h"
+#include "http/HttpRequest.h"
 
 #include <chrono>
 #include <netinet/in.h>
