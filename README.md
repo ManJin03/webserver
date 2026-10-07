@@ -2,7 +2,8 @@
 
 一个用 C++ 从零实现的 Linux 高性能 Web 服务器，基于 **epoll + 非阻塞 I/O** 的单线程事件驱动模型。
 
-项目处于早期阶段：网络框架（监听、连接管理、事件循环）与 HTTP 请求解析已经跑通，目前会把请求的 **Body 原样回显** 成 `200 OK` 响应，路由与静态文件尚未实现。
+项目处于早期阶段：网络框架（监听、连接管理、事件循环）与 HTTP 请求解析已经跑通，目前会把请求的 **Body 原样回显** 成 `200 OK`
+响应，路由与静态文件尚未实现。
 
 ## 特性
 
@@ -30,7 +31,8 @@ webserver/
     │   └── Router.h/.cpp      # 路由表：路径 → 处理函数，未命中走兜底 handler
     └── base/           # 基础设施：与业务无关的可复用组件
         ├── Buffer.h/.cpp      # 读写双索引缓冲区：自动扩容、从 fd 读满数据
-        └── Timer.h/.cpp       # 基于 timerfd 的周期定时器
+        ├── Timer.h/.cpp       # 基于 timerfd 的周期定时器
+        └── ThreadPool.h/.cpp  # 线程池：按 key 分队列，同一连接的任务串行执行
 ```
 
 头文件一律以 `src` 为根引用（`#include "net/Server.h"`、`#include "base/Buffer.h"`），
@@ -86,7 +88,8 @@ router->setDefaultHandler([](const HttpRequest& request , std::string_view)
 loop->setRouter(router);
 ```
 
-`Response` 的三个字段：`status`（默认 200）、`body`、`contentType`（默认 `text/plain; charset=utf-8`）。状态行文本由 `Router` 按状态码映射，重复的 `Content-Length` / `Connection` 头不用操心。
+`Response` 的三个字段：`status`（默认 200）、`body`、`contentType`（默认 `text/plain; charset=utf-8`）。状态行文本由 `Router`
+按状态码映射，重复的 `Content-Length` / `Connection` 头不用操心。
 
 ## 测试
 
@@ -128,15 +131,16 @@ Host: 127.0.0.1
 
 ### 核心类
 
-| 类 | 职责 |
-| --- | --- |
-| `Server` | 持有监听 fd，负责 `socket` / `bind` / `listen`，`accept()` 返回一个新的 `Connection` |
-| `EventLoop` | 持有 epoll fd，把监听 fd 加入 epoll，循环 `epoll_wait` 并分发事件，用 `unordered_map<fd, unique_ptr<Connection>>` 管理全部连接 |
-| `Connection` | 封装一条 TCP 连接，持有读写缓冲区与 `HttpRequest`，`handleRead()` 收数据、`processInput()` 解析并生成响应、`handleWrite()` 发送 |
-| `Buffer` | 读写双索引缓冲区，为上层屏蔽 TCP 半包/粘包 |
-| `Router` | 路由表，按 `path` 分发到注册的处理函数，把产出的 `Response` 拼成 HTTP 报文 |
-| `Timer` | 封装 `timerfd`，周期到期时触发 `EventLoop::checkTimeout()` 清理空闲连接 |
-| `HttpRequest` | 解析请求行与 Header，收不全时不消费缓冲区 |
+| 类            | 职责                                                                                                                            |
+|---------------|---------------------------------------------------------------------------------------------------------------------------------|
+| `Server`      | 持有监听 fd，负责 `socket` / `bind` / `listen`，`accept()` 返回一个新的 `Connection`                                            |
+| `EventLoop`   | 持有 epoll fd，把监听 fd 加入 epoll，循环 `epoll_wait` 并分发事件，用 `unordered_map<fd, unique_ptr<Connection>>` 管理全部连接  |
+| `Connection`  | 封装一条 TCP 连接，持有读写缓冲区与 `HttpRequest`，`handleRead()` 收数据、`processInput()` 解析并生成响应、`handleWrite()` 发送 |
+| `Buffer`      | 读写双索引缓冲区，为上层屏蔽 TCP 半包/粘包                                                                                      |
+| `Router`      | 路由表，按 `path` 分发到注册的处理函数，把产出的 `Response` 拼成 HTTP 报文                                                      |
+| `Timer`       | 封装 `timerfd`，周期到期时触发 `EventLoop::checkTimeout()` 清理空闲连接                                                         |
+| `ThreadPool`  | 固定线程数的线程池，按 key 把任务分到固定工作线程，跑业务逻辑                                                                   |
+| `HttpRequest` | 解析请求行与 Header，收不全时不消费缓冲区                                                                                       |
 
 ### 事件循环流程
 
@@ -147,9 +151,11 @@ startLoop():
   epoll_wait 阻塞等待就绪事件
     ├─ 就绪的是监听 fd  → 循环 accept 直到 EAGAIN
     │                     新连接注册 EPOLLIN 并存入 m_connections
+    ├─ 定时器 fd 到期  → 扫一遍连接，清掉空闲超时的
+    ├─ eventfd 可读    → 工作线程算完了响应，取回来准备发送
     └─ 就绪的是连接 fd → 接收阶段（EPOLLIN）
-                           └─ 循环 handleRead() + processInput() 解析请求、填好响应
-                              ├─ 有响应待发 : MOD 成 EPOLLOUT，下一轮再发送
+                           └─ 循环 handleRead() + processInput() 解析请求
+                              ├─ 收全了     : 把请求投递给线程池，I/O 线程继续收下一条
                               ├─ 还没收全   : 保持 EPOLLIN 继续等数据
                               ├─ n == 0     : 对端关闭，摘除 fd 并销毁 Connection
                               ├─ n < 0      : EAGAIN 本轮结束；出错则摘除 fd
@@ -161,7 +167,33 @@ startLoop():
                               └─ 出错   : 摘除 fd
 ```
 
-收和发拆成两个阶段：一轮 `epoll_wait` 里只做一件事，响应攒在写缓冲区里，靠 `EPOLLIN` / `EPOLLOUT` 互切推进。好处是发送不会被接收拖住，写缓冲区没发完的数据能在后续轮次续发，不会丢。
+## 线程模型
+
+I/O 线程只有一个，它独占 epoll、监听 fd 和所有 `Connection`，只做三件事：收数据、解析头部、发数据。
+**业务逻辑（路由里的处理函数）全部丢给线程池**，耗时处理不会把事件循环卡住。
+
+```
+I/O 线程                          工作线程（4 个）
+handleRead + 解析头部
+  └─ 请求收全 → pool.enqueue(fd, task)
+                                  task: router.route() 算出响应
+        submitResponse(fd, data) ←────┘  结果交回，不直接写 socket
+  └─ appendOutput + MOD EPOLLOUT
+handleWrite → 发送
+```
+
+要点：
+
+- **工作线程不碰 socket**。它算完响应后调 `EventLoop::submitResponse()`，把字节存进 `m_pendingResponses`，再写一个
+  `eventfd` 把阻塞在 `epoll_wait` 上的 I/O 线程唤醒，由 I/O 线程写入写缓冲区并发送。这样 fd 只被一个线程操作，不需要给
+  socket 加锁。
+- **按 fd 分队列**。线程池每个工作线程一条自己的队列，`enqueue(fd, task)` 用 `fd % 线程数` 选队列——同一连接的所有任务落在同一个线程上，FIFO
+  执行，因此 keep-alive 或 pipeline 场景下响应顺序不会乱。
+- **生命周期安全**。任务里只带 fd 和解析好的请求，不带 `Connection` 指针：如果任务排队期间连接被超时清理，`handleWakeup()`
+  发现连接不在了就直接丢弃结果，不会踩到已释放的对象。
+
+收和发拆成两个阶段：一轮 `epoll_wait` 里只做一件事，响应攒在写缓冲区里，靠 `EPOLLIN` / `EPOLLOUT`
+互切推进。好处是发送不会被接收拖住，写缓冲区没发完的数据能在后续轮次续发，不会丢。
 
 `processInput()` 内部循环处理，一次读事件里攒着的多条请求（pipeline）会被逐条解析、逐条填入写缓冲区。
 
@@ -174,7 +206,7 @@ startLoop():
 - [x] `timerfd` 定时器：每 5s 扫一遍连接，清掉空闲超过 30s 的连接
 - [ ] 改用 `EPOLLET` 边缘触发，配合循环读写
 - [ ] 用最小堆 / 时间轮管理定时器，避免每次全量扫描连接
-- [ ] 引入线程池，把请求处理与 I/O 线程分离
+- [x] 线程池：业务处理丢给工作线程，I/O 线程只管收发；按 fd 分队列保证同一连接的响应顺序
 - [x] 路由模块：路径 → 处理函数，支持自定义响应状态码与 Content-Type
 - [ ] 静态文件服务、路径参数（`/user/:id`）与方法匹配（GET/POST 分发到不同 handler）
 

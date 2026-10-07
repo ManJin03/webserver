@@ -10,6 +10,9 @@
 
 #include <chrono>
 #include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <unordered_map>
 
 
@@ -20,28 +23,34 @@ constexpr std::chrono::seconds TIMER_INTERVAL{5};
 constexpr std::chrono::seconds CONNECTION_TIMEOUT{30};
 
 class Router;
+class ThreadPool;
 
 class EventLoop
 {
     int m_socket{-1};
+    int m_wakeupFd{-1};
     std::shared_ptr<Server> m_server{nullptr};
     std::shared_ptr<Router> m_router{nullptr};
+    std::shared_ptr<ThreadPool> m_pool{nullptr};
     std::unordered_map<int,std::unique_ptr<Connection>> m_connections;
     Timer m_timer{TIMER_INTERVAL};
+    // 工作线程算好的响应先存在这里，由 I/O 线程取走发送
+    std::unordered_map<int,std::string> m_pendingResponses;
+    std::mutex m_pendingMutex;
 
 public:
     explicit EventLoop();
 
-    ~EventLoop()
-    {
-        if (m_socket > 0) {
-            close(m_socket);
-        }
-    };
+    ~EventLoop();
 
     int setServer(const std::shared_ptr<Server>& server);
 
     void setRouter(const std::shared_ptr<Router>& router) { m_router = router; }
+
+    void setThreadPool(const std::shared_ptr<ThreadPool>& pool) { m_pool = pool; }
+
+    // 工作线程算完响应后调用：把响应交给 I/O 线程，并唤醒事件循环
+    void submitResponse(int fd , const std::string& data);
 
     void startLoop();
 
@@ -54,6 +63,9 @@ private:
 
     // 定时检查，清掉空闲超时的连接
     void checkTimeout();
+
+    // 被工作线程唤醒：把算好的响应写进对应连接的写缓冲区，并切到 EPOLLOUT
+    void handleWakeup();
 };
 
 

@@ -3,10 +3,13 @@
 //
 
 #include "net/Connection.h"
+#include "net/EventLoop.h"
 #include "http/Router.h"
+#include "base/ThreadPool.h"
 
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace
 {
@@ -29,7 +32,7 @@ ssize_t Connection::handleRead()
     return m_readBuf.readFd(m_socket);
 }
 
-ParseResult Connection::processInput(const Router& router)
+ParseResult Connection::processInput(const Router& router , ThreadPool& pool , EventLoop& loop)
 {
     // 一次读事件里可能攒着多条请求（pipeline），收全一条就处理一条
     while (true) {
@@ -44,12 +47,20 @@ ParseResult Connection::processInput(const Router& router)
         const std::size_t bodyLen = contentLength(m_request).value_or(0);
         if (m_readBuf.readableBytes() < bodyLen) { return ParseResult::Incomplete; }
 
-        const std::string body = m_readBuf.retrieveAsString(bodyLen);
-        router.route(m_request , body , m_writeBuf);
-
-        // 复位，准备解析该连接上的下一条请求
+        std::string body = m_readBuf.retrieveAsString(bodyLen);
+        // 请求已经收全，把请求移出去交给工作线程，连接状态立刻复位等下一条请求
+        HttpRequest request = std::move(m_request);
         m_request = HttpRequest{};
         m_headerParsed = false;
+
+        // 按 fd 投递：同一连接的任务落在同一个工作线程上，保证响应顺序
+        const int fd = m_socket;
+        pool.enqueue(fd , [&router , &loop , fd , req = std::move(request) , data = std::move(body)]
+        {
+            Buffer out;
+            router.route(req , data , out);
+            loop.submitResponse(fd , out.retrieveAllAsString()); // 结果交回 I/O 线程发送
+        });
     }
 }
 

@@ -4,8 +4,11 @@
 
 #include "net/EventLoop.h"
 #include "http/Router.h"
+#include "base/ThreadPool.h"
 
 constexpr int PORT = 8888;
+// 工作线程数：业务处理在这里跑，I/O 线程只负责收发
+constexpr std::size_t WORKER_THREADS = 4;
 
 int main()
 {
@@ -32,10 +35,13 @@ int main()
         return Response{404 , "404 Not Found: " + request.path};
     });
 
+    const auto pool = std::make_shared<ThreadPool>(WORKER_THREADS);
+
     const auto server = std::make_shared<Server>(PORT);
     const auto loop = std::make_unique<EventLoop>();
     loop->setServer(server);
     loop->setRouter(router);
+    loop->setThreadPool(pool);
     server->start();
     loop->startLoop();
     return 0;

@@ -5,6 +5,8 @@
 #include "net/EventLoop.h"
 
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
+#include <utility>
 
 EventLoop::EventLoop()
 {
@@ -13,12 +15,36 @@ EventLoop::EventLoop()
         perror("epoll_create1");
         return;
     }
+
     // 定时器也是 epoll 里的一个 fd，到期时和其他事件一起被 epoll_wait 返回
     epoll_event timerEvent{};
     timerEvent.events = EPOLLIN;
     timerEvent.data.fd = m_timer.getFd();
     if (epoll_ctl(m_socket , EPOLL_CTL_ADD , m_timer.getFd() , &timerEvent) < 0) {
         perror("epoll_ctl add timer");
+    }
+
+    // 工作线程算完响应后写这个 fd，把阻塞在 epoll_wait 上的 I/O 线程唤醒
+    m_wakeupFd = eventfd(0 , EFD_NONBLOCK | EFD_CLOEXEC);
+    if (m_wakeupFd < 0) {
+        perror("eventfd");
+        return;
+    }
+    epoll_event wakeupEvent{};
+    wakeupEvent.events = EPOLLIN;
+    wakeupEvent.data.fd = m_wakeupFd;
+    if (epoll_ctl(m_socket , EPOLL_CTL_ADD , m_wakeupFd , &wakeupEvent) < 0) {
+        perror("epoll_ctl add wakeup");
+    }
+}
+
+EventLoop::~EventLoop()
+{
+    if (m_socket > 0) {
+        close(m_socket);
+    }
+    if (m_wakeupFd > 0) {
+        close(m_wakeupFd);
     }
 }
 
@@ -50,6 +76,37 @@ void EventLoop::removeConnection(const int fd)
 {
     epoll_ctl(m_socket , EPOLL_CTL_DEL , fd , nullptr);
     m_connections.erase(fd);
+}
+
+void EventLoop::submitResponse(const int fd , const std::string& data)
+{
+    {
+        std::lock_guard lock{m_pendingMutex};
+        m_pendingResponses[fd].append(data);
+    }
+    // 唤醒 I/O 线程；写失败（EAGAIN）也没关系，说明已经有未处理的唤醒了
+    constexpr std::uint64_t one = 1;
+    write(m_wakeupFd , &one , sizeof(one));
+}
+
+void EventLoop::handleWakeup()
+{
+    std::uint64_t count{0};
+    while (read(m_wakeupFd , &count , sizeof(count)) > 0) {}
+
+    std::unordered_map<int,std::string> responses;
+    {
+        std::lock_guard lock{m_pendingMutex};
+        responses.swap(m_pendingResponses);
+    }
+
+    for (auto& [fd , data] : responses) {
+        if (!m_connections.contains(fd)) {
+            continue; // 连接已经被关掉，算好的响应直接丢弃
+        }
+        m_connections[fd]->appendOutput(std::move(data));
+        updateEvent(fd , EPOLLOUT); // 下一轮把响应发出去
+    }
 }
 
 void EventLoop::checkTimeout()
@@ -84,6 +141,11 @@ void EventLoop::startLoop()
             if (fd == m_timer.getFd()) {
                 m_timer.onTick();
                 checkTimeout();
+                continue;
+            }
+            //工作线程算完了响应，取回来准备发送
+            if (fd == m_wakeupFd) {
+                handleWakeup();
                 continue;
             }
             //服务端有新连接
@@ -129,7 +191,7 @@ void EventLoop::startLoop()
                 while (true) {
                     if (const auto n = m_connections[fd]->handleRead() ; n > 0) {
                         // 解析请求并填好响应，非法报文直接关闭连接
-                        if (m_connections[fd]->processInput(*m_router) == ParseResult::Error) {
+                        if (m_connections[fd]->processInput(*m_router , *m_pool , *this) == ParseResult::Error) {
                             printf("Bad request: fd %d\n" , fd);
                             removeConnection(fd);
                             break;

@@ -19,12 +19,17 @@ add_executable(webserver
         src/http/HttpRequest.h
         src/http/Router.cpp
         src/http/Router.h
-        # 基础设施：缓冲区与定时器
+        # 基础设施：缓冲区、定时器与线程池
         src/base/Buffer.cpp
         src/base/Buffer.h
         src/base/Timer.cpp
         src/base/Timer.h
+        src/base/ThreadPool.cpp
+        src/base/ThreadPool.h
 )
+
+find_package(Threads REQUIRED)
+target_link_libraries(webserver PRIVATE Threads::Threads)
 
 # 头文件一律以 src 为根引用，如 #include "net/Server.h"
 target_include_directories(webserver PRIVATE src)
