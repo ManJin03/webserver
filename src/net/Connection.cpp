@@ -56,14 +56,20 @@ ParseResult Connection::processInput(const Router& router , ThreadPool& pool , E
         // 客户端要求关闭就在响应发完后关掉，否则一直保持 keep-alive
         if (request.wantClose()) { m_closeAfterWrite = true; }
 
-        // 按 fd 投递：同一连接的任务落在同一个工作线程上，保证响应顺序
+        // 按 fd 投递：同一连接的任务串行执行，保证响应顺序
         const int fd = m_socket;
-        pool.enqueue(fd , [&router , &loop , fd , req = std::move(request) , data = std::move(body)]
+        const bool queued = pool.enqueue(fd , [&router , &loop , fd , req = std::move(request) , data = std::move(body)]
         {
             Buffer out;
             router.route(req , data , out);
             loop.submitResponse(fd , out.retrieveAllAsString()); // 结果交回 I/O 线程发送
         });
+        if (!queued) {
+            // 线程池积压满了：回 503 并关掉连接，别把请求悄悄丢了
+            appendOutput("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            m_closeAfterWrite = true;
+            return ParseResult::Complete;
+        }
     }
 }
 
