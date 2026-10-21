@@ -24,13 +24,15 @@ add_executable(webserver
         src/http/HttpRequest.h
         src/http/Router.cpp
         src/http/Router.h
-        # 基础设施：缓冲区、定时器与线程池
+        # 基础设施：缓冲区、定时器、线程池与日志
         src/base/Buffer.cpp
         src/base/Buffer.h
         src/base/Timer.cpp
         src/base/Timer.h
         src/base/ThreadPool.cpp
         src/base/ThreadPool.h
+        src/base/Logger.cpp
+        src/base/Logger.h
 )
 
 find_package(Threads REQUIRED)

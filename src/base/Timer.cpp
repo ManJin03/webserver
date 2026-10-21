@@ -3,9 +3,10 @@
 //
 
 #include "base/Timer.h"
+#include "base/Logger.h"
 
 #include <cstdint>
-#include <cstdio>
+#include <cstring>
 #include <sys/timerfd.h>
 #include <unistd.h>
 
@@ -13,7 +14,7 @@ Timer::Timer(const std::chrono::seconds interval)
 {
     m_fd = timerfd_create(CLOCK_MONOTONIC , TFD_NONBLOCK | TFD_CLOEXEC);
     if (m_fd < 0) {
-        perror("timerfd_create");
+        LOG_ERROR("timerfd_create: " , strerror(errno));
         return;
     }
 
@@ -21,7 +22,7 @@ Timer::Timer(const std::chrono::seconds interval)
     spec.it_value.tv_sec = interval.count();     // 首次到期时间
     spec.it_interval.tv_sec = interval.count();  // 之后的周期
     if (timerfd_settime(m_fd , 0 , &spec , nullptr) < 0) {
-        perror("timerfd_settime");
+        LOG_ERROR("timerfd_settime: " , strerror(errno));
     }
 }
 

@@ -3,7 +3,9 @@
 //
 
 #include "net/EventLoop.h"
+#include "base/Logger.h"
 
+#include <cstring>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <utility>
@@ -12,7 +14,7 @@ EventLoop::EventLoop()
 {
     m_socket = epoll_create1(0);
     if (m_socket < 0) {
-        perror("epoll_create1");
+        LOG_ERROR("epoll_create1: " , strerror(errno));
         return;
     }
 
@@ -21,20 +23,20 @@ EventLoop::EventLoop()
     timerEvent.events = EPOLLIN;
     timerEvent.data.fd = m_timer.getFd();
     if (epoll_ctl(m_socket , EPOLL_CTL_ADD , m_timer.getFd() , &timerEvent) < 0) {
-        perror("epoll_ctl add timer");
+        LOG_ERROR("epoll_ctl add timer: " , strerror(errno));
     }
 
     // 工作线程算完响应后写这个 fd，把阻塞在 epoll_wait 上的 I/O 线程唤醒
     m_wakeupFd = eventfd(0 , EFD_NONBLOCK | EFD_CLOEXEC);
     if (m_wakeupFd < 0) {
-        perror("eventfd");
+        LOG_ERROR("eventfd: " , strerror(errno));
         return;
     }
     epoll_event wakeupEvent{};
     wakeupEvent.events = EPOLLIN;
     wakeupEvent.data.fd = m_wakeupFd;
     if (epoll_ctl(m_socket , EPOLL_CTL_ADD , m_wakeupFd , &wakeupEvent) < 0) {
-        perror("epoll_ctl add wakeup");
+        LOG_ERROR("epoll_ctl add wakeup: " , strerror(errno));
     }
 }
 
@@ -56,7 +58,7 @@ int EventLoop::setServer(const std::shared_ptr<Server>& server)
     event.events = EPOLLIN;
     event.data.fd = server->getSocket();
     if (epoll_ctl(m_socket , EPOLL_CTL_ADD , server->getSocket() , &event) < 0) {
-        perror("epoll_ctl");
+        LOG_ERROR("epoll_ctl add listen fd: " , strerror(errno));
         return 1;
     }
     return 0;
@@ -68,7 +70,7 @@ void EventLoop::updateEvent(const int fd , const std::uint32_t events) const
     event.events = events;
     event.data.fd = fd;
     if (epoll_ctl(m_socket , EPOLL_CTL_MOD , fd , &event) < 0) {
-        perror("epoll_ctl mod");
+        LOG_ERROR("epoll_ctl mod: " , strerror(errno));
     }
 }
 
@@ -114,7 +116,7 @@ void EventLoop::checkTimeout()
     const auto now = std::chrono::steady_clock::now();
     for (auto it = m_connections.begin() ; it != m_connections.end() ;) {
         if (now - it->second->lastActive() > CONNECTION_TIMEOUT) {
-            printf("Connection timeout: fd %d\n" , it->first);
+            LOG_INFO("connection timeout: fd " , it->first);
             epoll_ctl(m_socket , EPOLL_CTL_DEL , it->first , nullptr);
             it = m_connections.erase(it); // Connection 析构时自动 close
         }
@@ -131,7 +133,7 @@ void EventLoop::startLoop()
         //获取就绪套接字数
         const int nfds = epoll_wait(m_socket , events , MAXEVENTS , -1);
         if (nfds < 0) {
-            perror("epoll_wait");
+            LOG_ERROR("epoll_wait: " , strerror(errno));
             break;
         }
         for (int i = 0 ; i < nfds ; i++) {
@@ -160,10 +162,10 @@ void EventLoop::startLoop()
                     event.events = EPOLLIN;
                     event.data.fd = conn->getSocket();
                     if (epoll_ctl(m_socket , EPOLL_CTL_ADD , conn->getSocket() , &event) < 0) {
-                        perror("epoll_ctl add conn");
+                        LOG_ERROR("epoll_ctl add conn: " , strerror(errno));
                     }
                     else {
-                        printf("New connection at fd %d\n" , conn->getSocket());
+                        LOG_INFO("new connection at fd " , conn->getSocket());
                         m_connections.emplace(conn->getSocket() , std::move(conn));
                     }
                 }
@@ -177,7 +179,7 @@ void EventLoop::startLoop()
                     if (errno == EAGAIN || errno == EWOULDBLOCK) {
                         continue; // 内核发送缓冲区满了，保持 EPOLLOUT 等下一轮
                     }
-                    perror("write");
+                    LOG_ERROR("write fd " , fd , ": " , strerror(errno));
                     removeConnection(fd);
                     continue;
                 }
@@ -201,14 +203,14 @@ void EventLoop::startLoop()
                     if (const auto n = m_connections[fd]->handleRead() ; n > 0) {
                         // 解析请求并填好响应，非法报文直接关闭连接
                         if (m_connections[fd]->processInput(*m_router , *m_pool , *this) == ParseResult::Error) {
-                            printf("Bad request: fd %d\n" , fd);
+                            LOG_WARN("bad request: fd " , fd);
                             removeConnection(fd);
                             break;
                         }
                     }
                     else if (n == 0) {
                         //连接关闭，移除该连接
-                        printf("Connection closed: fd %d\n" , fd);
+                        LOG_INFO("connection closed: fd " , fd);
                         removeConnection(fd);
                         break;
                     }
@@ -216,7 +218,7 @@ void EventLoop::startLoop()
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
                             break; // 数据读完了
                         }
-                        perror("read");
+                        LOG_ERROR("read fd " , fd , ": " , strerror(errno));
                         removeConnection(fd);
                         break;
                     }

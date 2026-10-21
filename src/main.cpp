@@ -4,14 +4,21 @@
 
 #include "net/EventLoop.h"
 #include "http/Router.h"
+#include "base/Logger.h"
 #include "base/ThreadPool.h"
 
 constexpr int PORT = 8888;
+// 运行日志写到这里；打不开就只剩控制台输出
+constexpr const char* LOG_FILE = "webserver.log";
 // 工作线程数：业务处理在这里跑，I/O 线程只负责收发
 constexpr std::size_t WORKER_THREADS = 4;
 
 int main()
 {
+    if (!Logger::instance().init(LOG_FILE)) {
+        LOG_ERROR("open log file failed: " , LOG_FILE);
+    }
+    LOG_INFO("server starting on port " , PORT , " with " , WORKER_THREADS , " workers");
     // 路由表：每个路径注册自己的处理方式
     const auto router = std::make_shared<Router>();
     router->addRoute("/" , [] (const HttpRequest& , std::string_view)

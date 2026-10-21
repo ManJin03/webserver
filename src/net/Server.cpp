@@ -3,14 +3,15 @@
 //
 
 #include "net/Server.h"
+#include "base/Logger.h"
 
-#include <cstdio>
+#include <cstring>
 
 Server::Server(int port) : m_port{port}
 {
     m_socket = socket(AF_INET , SOCK_STREAM | SOCK_NONBLOCK , 0);
     if (m_socket < 0) {
-        perror("Error creating socket");
+        LOG_ERROR("socket: " , strerror(errno));
         return;
     }
     m_addr.sin_family = AF_INET;
@@ -23,16 +24,16 @@ Server::Server(int port) : m_port{port}
 int Server::start()
 {
     if (m_socket < 0) {
-        perror("Error creating socket");
+        LOG_ERROR("socket: " , strerror(errno));
         return -1;
     }
     if (bind(m_socket , reinterpret_cast<sockaddr*>(&m_addr) , sizeof(m_addr)) < 0) {
-        perror("bind");
+        LOG_ERROR("bind: " , strerror(errno));
     }
     if (listen(m_socket , SOMAXCONN) < 0) {
-        perror("listen");
+        LOG_ERROR("listen: " , strerror(errno));
     }
-    printf("Server listening on port %d...\n" , m_port);
+    LOG_INFO("server listening on port " , m_port);
     return 0;
 }
 
@@ -44,7 +45,7 @@ std::unique_ptr<Connection> Server::accept() const
                               &addr_len ,SOCK_NONBLOCK);
     if (confd < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) { return nullptr; }
-        perror("accept");
+        LOG_ERROR("accept: " , strerror(errno));
     }
     return std::make_unique<Connection>(confd , addr);
 }
